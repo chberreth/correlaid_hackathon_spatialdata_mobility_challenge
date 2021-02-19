@@ -247,12 +247,12 @@ trips_lonlat <- merge(trips_df, stations_data,
         by.x = "end_rental_zone_hal_id", by.y = "station_id") %>% 
   rename(end_name = name, end_lat = lat, end_lon = lon)
 trips_lonlat$route_id <- 1:nrow(trips_lonlat)
-# trips_lonlat = trips_lonlat %>% slice(1:1000)
+
 trips_lonlat
 ```
 
 ```{r}
-lb <- 25
+lb <- 10
 trips_lonlat_vis <- trips_lonlat %>% arrange(desc(n_trips)) %>% filter(n_trips >= lb)
 
 m1 <- leaflet(trips_lonlat_vis) %>%
@@ -282,7 +282,7 @@ m1
 The map shows connections of station coordinates (*directed* trips) that appear at least 25 times. Size of lines increases in number of trips. Thus connections can be identified that are used more oftne. Right now, direction of trips (lon1,lat1) -> (lon2, lat2) and (lon2,lat2) -> (lon1, lat1) is distinguished i.e. some stations are connection by (duplicated) lines. Removing those duplicates is postponed. This is essential to identify the line that connects two station and appears most in data. To get a first result the map above can be used.
 
 ```{r}
-## TODO: count unique connections i.e. remove direction of trips and add visualization
+## TODO: count unique connections i.e. remove direction of trips and add additional visualization
 ```
 
 
@@ -297,7 +297,7 @@ https://github.com/jasmincl/correlaid-hackathon-spatialdata
 
 
 
-
+```{r eval=FALSE, include=FALSE}
 [1] "booking_hal_id"            "vehicle_hal_id"            "customer_hal_id"           "date_booking"              "datetime_from"             "datetime_to"              
  [7] "compute_extra_booking_fee" "traverse_use"              "distance"                  "start_rental_zone"         "start_rental_zone_hal_id"  "end_rental_zone"          
 [13] "end_rental_zone_hal_id"    "city_rental_zone"          "date_from"                 "date_to"                   "hour_from"                 "hour_to"                  
@@ -305,3 +305,6 @@ https://github.com/jasmincl/correlaid-hackathon-spatialdata
 [25] "time_from"                 "time_to"                   "hourmin_from"              "hourmin_to"                "name_start_station"        "lat_start_station"        
 [31] "lon_start_station"         "name_end_station"          "lat_end_station"           "lon_end_station"           "roundtrip"                 "timediff_hours"           
 [37] "timediff_mins"             "time_of_day_start"         "time_of_day_end"
+```
+
+
