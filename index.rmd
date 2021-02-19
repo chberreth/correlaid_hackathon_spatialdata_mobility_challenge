@@ -252,7 +252,7 @@ trips_lonlat
 ```
 
 ```{r}
-lb <- 10
+lb <- 15
 trips_lonlat_vis <- trips_lonlat %>% arrange(desc(n_trips)) %>% filter(n_trips >= lb)
 
 m1 <- leaflet(trips_lonlat_vis) %>%
@@ -279,7 +279,7 @@ m1
 ```
 
 
-The map shows connections of station coordinates (*directed* trips) that appear at least 25 times. Size of lines increases in number of trips. Thus connections can be identified that are used more oftne. Right now, direction of trips (lon1,lat1) -> (lon2, lat2) and (lon2,lat2) -> (lon1, lat1) is distinguished i.e. some stations are connection by (duplicated) lines. Removing those duplicates is postponed. This is essential to identify the line that connects two station and appears most in data. To get a first result the map above can be used.
+The map shows connections of station coordinates (*directed* trips) that appear at least `r lb` times. Size of lines increases in number of trips. Thus connections can be identified that are used more oftne. Right now, direction of trips (lon1,lat1) -> (lon2, lat2) and (lon2,lat2) -> (lon1, lat1) is distinguished i.e. some stations are connection by (duplicated) lines. Removing those duplicates is postponed. This is essential to identify the line that connects two station and appears most in data. To get a first result the map above can be used.
 
 ```{r}
 ## TODO: count unique connections i.e. remove direction of trips and add additional visualization
