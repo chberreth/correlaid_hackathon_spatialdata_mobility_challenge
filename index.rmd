@@ -1,9 +1,10 @@
 ---
-title: "rental_bikes"
+title: "Results Team 3 Mobility Challenge"
 author: "chberreth"
 date: "`r Sys.Date()`"
 output:
   html_document:
+    keep_md: true
     toc: yes
     toc_float: yes
     number_sections: yes
