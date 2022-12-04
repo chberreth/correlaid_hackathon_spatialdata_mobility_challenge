@@ -35,30 +35,55 @@ require(tidyverse)
 require(osmdata)
 require(sf)
 require(leaflet)
+require(geojsonR)
+require(sp)
 ```
 
 # Read Data 
 
+Read all data sets provide by CorrelAid / City Interaction Lab:
+
 ```{r}
-stations_data <- data.table::fread("./data/bikeshare_stations_hh.csv")
+# read hackathon data sets
+stations_data_orig <- data.table::fread("./data/bikeshare_stations_hh.csv")
 trips_data <- data.table::fread("./data/bikeshare_trips_hh.csv")
 landuse_sf_data <- readRDS("./data/landuse_sf.rds")
 ```
+
+Read additional data sets:
+```{r}
+url_geojson <- "https://opendata.arcgis.com/datasets/43a4da28b829469c86453a56e67e58ec_0.geojson"
+hamburg_districts_full <- rgdal::readOGR(url_geojson)
+```
+Get borough and district as per station:
+
+```{r}
+spdf <- SpatialPointsDataFrame(coords = stations_data_orig[, c("lon", "lat")], 
+                               data = stations_data_orig, 
+                               proj4string = CRS("+proj=longlat +datum=WGS84 +no_defs"))
+
+station_data_districts = over(x=spdf, y=hamburg_districts_full)
+stations_data <- cbind(stations_data_orig, station_data_districts[, c("Bezirk", "Bezirk_Nam", "Stadtteil")])
+```
+
+
 
 # Merge Data Sets
 
 ```{r}
 start_stations <-
-  merge(trips_data, stations_data, by.y = "station_id", by.x = "start_rental_zone_hal_id") %>% select(name, lat, lon)
-colnames(start_stations) <-
-  c("name_start_station",
-    "lat_start_station",
-    "lon_start_station")
+  merge(trips_data, stations_data, by.y = "station_id", by.x = "start_rental_zone_hal_id") %>% 
+  rename(name_start_station = name, lat_start_station = lat, lon_start_station = lon, 
+         bezirk_start_station = Bezirk, bezirk_name_start_station = Bezirk_Nam, stadtteil_start_station = Stadtteil) %>%
+  select(contains("start_station"))
+  
 
 end_stations <-
-  merge(trips_data, stations_data, by.y = "station_id", by.x = "end_rental_zone_hal_id") %>% select(name, lat, lon)
-colnames(end_stations) <-
-  c("name_end_station", "lat_end_station", "lon_end_station")
+  merge(trips_data, stations_data, by.y = "station_id", by.x = "end_rental_zone_hal_id") %>% 
+  rename(name_end_station = name, lat_end_station = lat, lon_end_station = lon, 
+         bezirk_end_station = Bezirk, bezirk_name_end_station = Bezirk_Nam, stadtteil_end_station = Stadtteil) %>% 
+    select(contains("end_station"))
+
 
 trips_data_latlon <- cbind(trips_data, start_stations, end_stations)
 ```
@@ -97,8 +122,7 @@ trips_data_fts <- trips_data_latlon %>%
          time_of_day_end = get_time_of_day(hourmin_to), 
          distance_meters = get_dist(lon_start_station, lat_start_station, 
                                     lon_end_station, lat_end_station)) %>% 
-  mutate(speed = ifelse(distance_meters==0, NA, as.numeric(timediff_mins)/distance_meters))
-
+  mutate(speed = ifelse(timediff_mins==0, NA, distance_meters / as.numeric(timediff_mins)))
 ```
 
 
@@ -183,8 +207,6 @@ duration_by_date %>%
   scale_x_datetime(name = "Start Date", date_breaks = "day", date_labels = "%Y-%m-%d (%a)") +
   theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
   labs(title = "mean duration of trips as per start date and time of day")
-
-
 ```
 Observations on trips and their duration:
 * majority of trips end at different stations as they started (94.6%)
@@ -195,6 +217,77 @@ Observations on start date of trips:
 * Rentals at night increase especially at the weekend
 * Vice versa rentals in the morning decrease especially at the weekend
 * Most trips are started in the afternoon or evening
+
+
+
+```{r}
+print(table(trips_data_fts$bezirk_name_start_station, trips_data_fts$bezirk_name_end_station))
+district_counts <- trips_data_fts %>% 
+  group_by(bezirk_name_start_station, bezirk_name_end_station) %>% 
+  summarise(n = n()) %>% arrange(desc(n))
+
+library(viridis)
+my_breaks = c(10, 100, 1000, 10000, 50000)
+ggplot(drop_na(district_counts), 
+       aes(bezirk_name_start_station, bezirk_name_end_station, 
+           label=n, fill=n)) + 
+  geom_tile() + 
+  geom_text(col="white") + 
+  theme_minimal() + 
+  # scale_fill_gradient(name="count", trans="log", breaks = my_breaks, labels=my_breaks) + 
+  scale_fill_viridis(name="count", trans="log", breaks = my_breaks, labels=my_breaks) + 
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+district_counts_stadtteile <- trips_data_fts %>% 
+  group_by(stadtteil_start_station, stadtteil_end_station) %>% 
+  summarise(n = n()) %>% arrange(desc(n))
+
+my_breaks = c(10, 100, 1000, 5000)
+ggplot(drop_na(district_counts_stadtteile), 
+       aes(stadtteil_start_station, stadtteil_end_station, 
+           label=n, fill=n)) + 
+  geom_tile() + 
+  theme_minimal() + 
+  scale_fill_viridis(name="count", trans="log", breaks = my_breaks, labels=my_breaks) + 
+  theme(axis.text.x = element_text(angle = 60, hjust=1))
+
+# wieviele solche unterschiedlicher zonen gibt es, wie verteilen sich die trips darauf, die Kunden, wie verteilen sich die end_rental_zones (vllt sogar matrix?!)
+
+```
+# Boroughs and Districts of Hamburg
+
+```{r}
+# remove Islands in Nationalpark Hamburgisches Wattenmeer in the North Sea
+hamburg_districts <- hamburg_districts_full[hamburg_districts_full$Stadtteil != "Neuwerk",]
+
+n_boroughs <- length(unique(hamburg_districts@data$Bezirk))
+# borough_colours <- colorRampPalette(blues9)(n_boroughs+1)
+borough_colours <- rainbow(n_boroughs)
+
+# leaflet(hamburg_districts) %>% addTiles() %>% addPolygons(weight = 1, color = "#444444", fill = FALSE )
+map_hamburg <- leaflet() %>% addTiles()
+
+n_districts <- length(hamburg_districts)
+for(i in 1:n_districts){
+  bezirk_name = hamburg_districts@data$Bezirk_Nam[i]
+  stadtteil =  hamburg_districts@data$Stadtteil[i]
+  
+  borough_polygon = sp::SpatialPolygons(hamburg_districts@polygons[i])
+  borough_colour = borough_colours[hamburg_districts@data$Bezirk[i]]
+  popup_txt = paste("Bezirk:", bezirk_name, "<br>", 
+                    "Stadtteil:",stadtteil)
+
+  map_hamburg <- map_hamburg %>% 
+    addPolygons(data = borough_polygon, 
+                color = borough_colour, 
+                weight = 2,
+                fillColor = "#444444", 
+                fillOpacity = .2, 
+                popup = popup_txt)
+}
+
+map_hamburg
+```
 
 # Interactive Visualization of start and end stations
 
@@ -214,26 +307,34 @@ df_station_counts <- rbind(start_trip_counts_latlon, end_trip_counts_latlon)
 cols <- c(1,9)
 factpal <- colorFactor(rainbow(12)[cols], df_station_counts$group)
 
-m <- leaflet(df_station_counts) %>% 
+m <- leaflet() %>% 
   addTiles() %>% 
+  addPolygons(data = hamburg_districts, weight = 2, 
+              color = "#444444", fillColor = "#444444", fillOpacity = .2, 
+              popup = paste("Bezirk:", ~bezirk_name, "<br>", "Stadtteil:", ~stadtteil)) %>% 
   addCircles(lng = ~lon, lat = ~lat, radius = ~sqrt(n)*10, 
              group = ~group, color = ~factpal(group),
-             popup = ~name, weight = 1) %>% 
+             popup = ~name, weight = 1, 
+             data = df_station_counts) %>% 
   addLayersControl(
     baseGroups = c("Departure", "Arrival"),
     options = layersControlOptions(collapsed = TRUE))
 m
 ```
 
-# Interactive Visualization of trips
+# Further descriptive statistics
 
 ```{r}
 trips_df <- trips_data_fts %>% 
   group_by(start_rental_zone_hal_id, end_rental_zone_hal_id) %>% 
   summarise(n_trips = n()
             , n_dist_customer = n_distinct(customer_hal_id)
-            , mw_duration = mean(timediff_mins)
-            # , mean_speed = timediff_mins / (distance_meters / 1000)
+            , mean_duration = mean(timediff_mins)
+            , sd_duration = sd(timediff_mins)
+            , mean_speed = mean(speed)
+            , sd_speed = sd(speed)
+            , mean_distance = mean(distance_meters)
+            , sd_distance = sd(distance_meters)
             ) %>% 
   ungroup() %>% 
   mutate(freq_trips = n_trips / sum(n_trips), 
@@ -245,18 +346,59 @@ trips_lonlat <- merge(trips_df, stations_data,
   rename(start_name = name, start_lat = lat, start_lon = lon) %>% 
   merge(x = ., stations_data, 
         by.x = "end_rental_zone_hal_id", by.y = "station_id") %>% 
-  rename(end_name = name, end_lat = lat, end_lon = lon)
+  rename(end_name = name, end_lat = lat, end_lon = lon) %>% 
+  mutate(distance_meters = get_dist(start_lon, start_lat, end_lon, end_lat))
+
 trips_lonlat$route_id <- 1:nrow(trips_lonlat)
 
-trips_lonlat
+trips_lonlat %>% arrange(desc(n_trips))
 ```
+
+
+
+```{r}
+ftr_list <- c("name_start_station", "name_end_station", "datetime_from", "datetime_to", "timediff_mins", "distance_meters", "speed",  "time_of_day_start", "time_of_day_end")
+
+# trip with max speed
+trips_data_fts %>% filter(speed == max(speed)) %>% select(all_of(ftr_list))
+```
+
+The results shows an error in the data. More detailed the timediff can't be right. According to Google Maps a cyclist would need more than a hour for this route.
+
+```{r}
+# trip with largest distance
+trips_data_fts %>% filter(distance_meters == max(distance_meters)) %>% select(all_of(ftr_list))
+
+# trip with longest duration
+trips_data_fts %>% filter(timediff_mins == max(timediff_mins)) %>% select(all_of(ftr_list))
+```
+From the trip with longest duration we can see that the derived measure `speed` doesn't make sense in any case. Especially in this considered case we can see that the customer made a detour and didn't ride directly to the station where he gave back his bike. 
+
+```{r}
+# routes with most trips (direction is distinguished)
+trips_lonlat %>% arrange(desc(n_trips)) %>% head(n=5)
+
+# routes used by largest amount of customers
+trips_lonlat %>% arrange(desc(n_dist_customer)) %>% head(n=5)
+
+# routes with largest avg. travel duration beyond all routes with at least 10 trips
+trips_lonlat %>% filter(n_trips > 10) %>% arrange(desc(mean_duration)) %>% head(n=5)
+
+# routes with highest average speed (high-speed lines) beyond all routes with at least 10 trips
+trips_lonlat %>% filter(n_trips > 10) %>% arrange(desc(mean_speed)) %>% head(n=5)
+```
+
+# Interactive Visualization of trips
 
 ```{r}
 lb <- 15
 trips_lonlat_vis <- trips_lonlat %>% arrange(desc(n_trips)) %>% filter(n_trips >= lb)
 
 m1 <- leaflet(trips_lonlat_vis) %>%
-  addTiles() 
+  addTiles() %>%
+  addPolygons(data = hamburg_districts, weight = 2, 
+              color = "#444444", fillColor = "#444444", fillOpacity = .2, 
+              popup = paste("Bezirk:", ~bezirk_name, "<br>", "Stadtteil:", ~stadtteil))
 
 for(i in 1:nrow(trips_lonlat_vis)){
   popup_txt =  paste("Station (Departure):", trips_lonlat_vis[i,"start_name"], "<br>",
@@ -281,7 +423,17 @@ m1
 
 The map shows connections of station coordinates (*directed* trips) that appear at least `r lb` times. Size of lines increases in number of trips. Thus connections can be identified that are used more oftne. Right now, direction of trips (lon1,lat1) -> (lon2, lat2) and (lon2,lat2) -> (lon1, lat1) is distinguished i.e. some stations are connection by (duplicated) lines. Removing those duplicates is postponed. This is essential to identify the line that connects two station and appears most in data. To get a first result the map above can be used.
 
+
+
 ```{r}
+## Further ideas:
+
+## TODO: identify all return trips (self join, end_station_trip_x = start_station_trip_y, customer_id_trip_x = customer_id_trip_y, start_time_trip_x < start_time_trip_y) -> count all around-trips that lie ~4 or ~8 hours apart (rides of working people), that have start_time in the evening/night (rides of people in spare time). To seperate between locals and tourists residential areas should be identified and used to filter.
+
+## TODO: identify 10 most popular hotspots in Hamburg (get coordinates), identify all routes heading to those hotspots => get descriptives (proportion of people heading to hotspot x etc.)
+
+## TODO: get coordinates of the center of all routes, identify all routes heading to center and away of it => proportion of trips heading to/away from city center and proportion that head into another direction 
+
 ## TODO: count unique connections i.e. remove direction of trips and add additional visualization
 ```
 
